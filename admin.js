@@ -102,7 +102,22 @@
     if (!el || !apiUrl()) return false;
 
     try {
-      const ping = await apiGet({ action: 'ping' });
+      const res = await fetch(`${apiUrl()}?action=ping`);
+      const text = await res.text();
+      let ping;
+      try { ping = JSON.parse(text); } catch { ping = null; }
+
+      if (Array.isArray(ping)) {
+        el.hidden = false;
+        el.querySelector('p').innerHTML =
+          '<strong>Старый Google-скрипт на этом URL</strong> (ответ <code>[]</code>). ' +
+          'Код в редакторе сохранён, но <strong>не развёрнут</strong>. ' +
+          'Apps Script → <strong>Развернуть → Управление развёртываниями</strong> → ✏️ → ' +
+          '<strong>Новая версия</strong> → Развернуть. ' +
+          'Проверка: откройте <a href="' + esc(apiUrl() + '?action=ping') + '" target="_blank" rel="noopener">ping</a> — должно быть <code>{"ok":true,"version":3}</code>, не <code>[]</code>.';
+        return false;
+      }
+
       const status = await apiGet({ action: 'status' });
       const ok = ping?.ok && ping.version >= 3 && status?.ok && status.hasListingsSheet;
 
@@ -111,16 +126,16 @@
         const parts = [];
         if (!ping?.ok) parts.push('скрипт не отвечает');
         if (status?.error) parts.push(status.error);
-        if (status?.ok && !status.hasListingsSheet) parts.push('нет листа listings — запустите upgradeOnce');
+        if (status?.ok && !status.hasListingsSheet) parts.push('запустите upgradeOnce');
         if (status?.ok && !status.hasPassword) parts.push('запустите setPasswordOnce');
         el.querySelector('p').textContent =
-          `Google Таблица не настроена: ${parts.join('; ') || 'обновите Code.gs и сделайте новое развёртывание'}.`;
+          `Google Таблица не настроена: ${parts.join('; ') || 'сделайте новое развёртывание'}.`;
       }
       return ok;
     } catch (err) {
       el.hidden = false;
       el.querySelector('p').textContent =
-        `Нет связи с Google: ${err.message}. Проверьте apiUrl и развёртывание (Доступ: Все).`;
+        `Нет связи с Google: ${err.message}. Развёртывание: «Выполнять от моего имени» + «Доступ: Все».`;
       return false;
     }
   }

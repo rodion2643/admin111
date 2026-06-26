@@ -4,31 +4,84 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="robots" content="noindex, nofollow">
-  <title>KWT — настройка (один раз)</title>
+  <title>KWT — настройка Google</title>
   <link rel="stylesheet" href="admin.css">
 </head>
 <body>
   <div class="admin">
     <header class="admin__head">
       <div>
-        <h1>Настройка (один раз)</h1>
-        <p>Только для того, кто заливает сайт на GitHub</p>
+        <h1>Настройка Google (один раз)</h1>
+        <p>Пока ping возвращает <code>[]</code> — админка не будет работать</p>
       </div>
       <a href="index.html" class="admin__back">← К админке</a>
     </header>
 
+    <section class="panel panel--warn" id="ping-result">
+      <p>Проверяем Google API…</p>
+    </section>
+
     <section class="panel">
+      <h2>1. Таблица + код</h2>
       <ol class="setup-list">
-        <li><a href="https://sheets.new" target="_blank" rel="noopener">Создать Google Таблицу</a></li>
-        <li>Расширения → <strong>Apps Script</strong></li>
-        <li>Скопировать код из файла <code>admin/apps-script/Code.gs</code> в редактор</li>
-        <li>Выбрать функцию <strong>setupOnce</strong> → Выполнить → разрешить доступ</li>
-        <li>⚙️ Свойства проекта → Script properties → <code>ADMIN_PASSWORD</code> = пароль для админа</li>
-        <li>Развернуть → Веб-приложение → доступ «Все» → скопировать URL</li>
-        <li>Вставить URL в <code>js/listings-config.js</code> в поле <code>apiUrl</code></li>
-        <li>Залить сайт на GitHub</li>
+        <li><a href="https://sheets.new" target="_blank" rel="noopener">Новая Google Таблица</a></li>
+        <li><strong>Расширения → Apps Script</strong> (только из таблицы!)</li>
+        <li>Вставить весь код из <code>admin/apps-script/Code.gs</code></li>
+        <li><strong>upgradeOnce</strong> → Выполнить</li>
+        <li><strong>setPasswordOnce</strong> → Выполнить</li>
+        <li><strong>testWriteOnce</strong> → Выполнить (строка в таблице)</li>
       </ol>
     </section>
+
+    <section class="panel">
+      <h2>2. Развёртывание (главное!)</h2>
+      <p>Сохранить код (Ctrl+S) <strong>недостаточно</strong>. Нужно обновить развёртывание:</p>
+      <ol class="setup-list">
+        <li>Apps Script → <strong>Развернуть → Управление развёртываниями</strong></li>
+        <li>У активного веб-приложения нажать <strong>✏️ (карандаш)</strong></li>
+        <li>Версия: <strong>Новая версия</strong></li>
+        <li><strong>Развернуть</strong></li>
+        <li>Если создали <em>новое</em> развёртывание — скопируйте новый URL в <code>config.js</code> и <code>js/listings-config.js</code></li>
+      </ol>
+    </section>
+
+    <section class="panel">
+      <h2>3. Проверка</h2>
+      <p>Откройте в браузере (ваш apiUrl + <code>?action=ping</code>):</p>
+      <p><a id="ping-link" href="#" target="_blank" rel="noopener"></a></p>
+      <p><strong>Правильно:</strong> <code>{"ok":true,"version":3,...}</code></p>
+      <p><strong>Неправильно:</strong> <code>[]</code> — старый скрипт, повторите шаг 2</p>
+    </section>
   </div>
+  <script src="config.js"></script>
+  <script>
+    (function () {
+      const url = (window.KWT_LISTINGS_CONFIG?.apiUrl || '') + '?action=ping';
+      const link = document.getElementById('ping-link');
+      const box = document.getElementById('ping-result');
+      if (link) { link.href = url; link.textContent = url; }
+      if (!url || url === '?action=ping') {
+        box.querySelector('p').textContent = 'apiUrl не задан в config.js';
+        return;
+      }
+      fetch(url).then(r => r.text()).then(t => {
+        let ok = false;
+        try {
+          const j = JSON.parse(t);
+          ok = j && j.ok && j.version >= 3;
+        } catch { /* ignore */ }
+        if (Array.isArray(JSON.parse(t))) {
+          box.querySelector('p').innerHTML = '<strong>Проблема:</strong> Google вернул <code>[]</code> — код не развёрнут. Шаг 2 → Новая версия → Развернуть.';
+        } else if (ok) {
+          box.className = 'panel';
+          box.querySelector('p').textContent = '✓ Google API работает. Можно пользоваться админкой.';
+        } else {
+          box.querySelector('p').textContent = 'Ответ: ' + t.slice(0, 200);
+        }
+      }).catch(e => {
+        box.querySelector('p').textContent = 'Ошибка: ' + e.message;
+      });
+    })();
+  </script>
 </body>
 </html>
