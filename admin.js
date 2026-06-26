@@ -78,9 +78,14 @@
   }
 
   function imgUrl(item) {
-    if (!item.image) return '';
-    if (/^https?:\/\//i.test(item.image)) return item.image;
-    return '../' + item.image.replace(/^\.\//, '');
+    const raw = item.image || '';
+    if (!raw) return '';
+    if (/drive\.google\.com/i.test(raw)) {
+      const m = raw.match(/[?&]id=([^&]+)/) || raw.match(/\/d\/([a-zA-Z0-9_-]+)/);
+      if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w400`;
+    }
+    if (/^https?:\/\//i.test(raw)) return raw;
+    return '../' + raw.replace(/^\.\//, '');
   }
 
   function buildListing(fd) {
@@ -240,15 +245,27 @@
     photoPreview.src = '';
   }
 
+  function initSiteLink() {
+    const link = document.getElementById('site-home');
+    if (!link) return;
+    const path = location.pathname.replace(/\/admin(\/.*)?$/i, '/');
+    link.href = path.includes('github.io') ? path : (path || '../');
+  }
+
   async function removeListing(id) {
     if (!confirm('Убрать объявление с сайта?')) return;
     try {
-      const data = await api({ action: 'remove', password: getPassword(), id });
-      if (!data.ok) throw new Error(data.error || 'Ошибка');
+      let data = await api({ action: 'remove', password: getPassword(), id });
+      if (!data.ok && /unknown|неизвест/i.test(String(data.error))) {
+        data = await api({ action: 'delete', password: getPassword(), id });
+      }
+      if (!data.ok) {
+        throw new Error(data.error || 'Не удалось снять. Обновите Google скрипт: upgradeOnce → Новая версия → Развернуть');
+      }
       if (editIdInput.value === id) resetForm();
       loadListings();
     } catch (e) {
-      alert(e.message);
+      alert(e.message || 'Ошибка удаления');
     }
   }
 
@@ -353,6 +370,7 @@
   });
 
   checkConfig();
+  initSiteLink();
   if (getPassword() && apiUrl()) {
     showApp(true);
     loadListings();
