@@ -1,7 +1,7 @@
 (function () {
   'use strict';
 
-  const SITE_URL = 'https://rodion2643.github.io/kwt-service1/';
+  const SITE_URL = 'https://rodion2643.github.io/kwt_service/';
   const cfg = window.KWT_LISTINGS_CONFIG || {};
   const SESSION_KEY = 'kwt_admin_pw';
 
@@ -71,7 +71,35 @@
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: JSON.stringify(body),
     });
-    return res.json();
+    return parseApiResponse(await res.text());
+  }
+
+  async function apiGet(params) {
+    if (!apiUrl()) throw new Error('Сайт не подключён.');
+    const qs = new URLSearchParams(params).toString();
+    const res = await fetch(`${apiUrl()}?${qs}`);
+    return parseApiResponse(await res.text());
+  }
+
+  function parseApiResponse(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      throw new Error('Google вернул не JSON. Сделайте «Развернуть → Новое развёртывание» в Apps Script.');
+    }
+  }
+
+  async function apiAction(body) {
+    let data = await api(body);
+    if (data?.ok) return data;
+    if (body.action === 'remove' || body.action === 'hide' || body.action === 'delete') {
+      data = await apiGet({
+        action: body.action,
+        password: body.password,
+        id: body.id,
+      });
+    }
+    return data;
   }
 
   function showApp(show) {
@@ -117,7 +145,8 @@
 
   function buildListing(fd) {
     const type = fd.get('type')?.toString() || 'Самокат';
-    const category = fd.get('category')?.toString() || 'sale';
+    const tabCat = categoryTabs?.querySelector('.category-tab--active')?.dataset.cat;
+    const category = fd.get('category')?.toString() || tabCat || 'sale';
     const model = fd.get('model')?.toString().trim();
     const prefix = TYPE_PREFIX[type] || 'Электротранспорт';
     const name = model.toLowerCase().startsWith(prefix.toLowerCase().slice(0, 8))
@@ -164,7 +193,11 @@
   }
 
   function itemCategory(item) {
-    if (item.category === 'used' || item.badge === 'Б/У') return 'used';
+    const cat = String(item.category || '').toLowerCase().trim();
+    if (cat === 'used') return 'used';
+    if (cat === 'sale') return 'sale';
+    const badge = String(item.badge || '').toLowerCase().trim();
+    if (badge === 'б/у' || badge === 'used' || badge === 'bu' || badge === 'b/u') return 'used';
     return 'sale';
   }
 
@@ -176,18 +209,37 @@
       .filter(i => !hidden.has(i.id) && !remoteIds.has(i.id))
       .map(i => ({ ...i, source: 'site' }));
 
-    const remoteMapped = remoteActive.map(i => ({
-      ...i,
-      source: String(i.id).startsWith('adm-') ? 'new' : 'edited',
-    }));
+    const remoteMapped = remoteActive.map(i => {
+      const cat = itemCategory(i);
+      return {
+        ...i,
+        category: cat,
+        badge: cat === 'used' ? 'Б/У' : 'продажа',
+        source: String(i.id).startsWith('adm-') ? 'new' : 'edited',
+      };
+    });
 
     return [...remoteMapped, ...staticItems];
   }
 
   async function loadListings() {
     if (!saleListEl && !usedListEl) return;
-    if (saleListEl) saleListEl.innerHTML = '<p class="muted">Загрузка…</p>';
-    if (usedListEl) usedListEl.innerHTML = '<p class="muted">Загрузка…</p>';
+
+    const renderMerged = (remoteItems, hiddenIds) => {
+      const saleItems = mergeVisibleList(remoteItems, hiddenIds, 'sale');
+      const usedItems = mergeVisibleList(remoteItems, hiddenIds, 'used');
+      renderList(saleListEl, saleItems, 'продаже');
+      renderList(usedListEl, usedItems, 'Б/У');
+      updateListCounts(saleItems.length, usedItems.length);
+      return { saleItems, usedItems };
+    };
+
+    if (typeof KWT !== 'undefined') {
+      renderMerged([], []);
+    } else {
+      if (saleListEl) saleListEl.innerHTML = '<p class="muted">Загрузка…</p>';
+      if (usedListEl) usedListEl.innerHTML = '<p class="muted">Загрузка…</p>';
+    }
 
     let remoteItems = [];
     let hiddenIds = [];
@@ -206,19 +258,13 @@
       apiNote = e.message || 'Нет связи с Google';
     }
 
-    const saleItems = mergeVisibleList(remoteItems, hiddenIds, 'sale');
-    const usedItems = mergeVisibleList(remoteItems, hiddenIds, 'used');
-
-    renderList(saleListEl, saleItems, 'продаже');
-    renderList(usedListEl, usedItems, 'Б/У');
+    renderMerged(remoteItems, hiddenIds);
 
     if (apiNote && scriptWarn) {
       scriptWarn.hidden = false;
       scriptWarn.querySelector('p').innerHTML =
         `<strong>Внимание:</strong> ${esc(apiNote)}. Ниже — объявления с сайта.`;
     }
-
-    updateListCounts(saleItems.length, usedItems.length);
   }
 
   function updateListCounts(saleN, usedN) {
@@ -339,13 +385,22 @@
   async function removeListing(id) {
     if (!confirm('Убрать с сайта?')) return;
     const pw = getPassword();
+    let lastError = '';
     try {
-      let data = await api({ action: 'remove', password: pw, id });
-      if (!data.ok) data = await api({ action: 'hide', password: pw, id });
-      if (!data.ok) data = await api({ action: 'delete', password: pw, id });
-      if (!data.ok) throw new Error('Не удалось снять. Обновите Google-скрипт.');
-      if (editIdInput.value === id) resetForm();
-      loadListings();
+      for (const action of ['remove', 'hide', 'delete']) {
+        const data = await apiAction({ action, password: pw, id });
+        if (data?.ok) {
+          if (editIdInput.value === id) resetForm();
+          loadListings();
+          return;
+        }
+        lastError = data?.error || lastError;
+      }
+      throw new Error(
+        lastError
+          ? `Не удалось снять: ${lastError}\n\n1) Вставь новый Code.gs\n2) Запусти upgradeOnce\n3) Развернуть → Новое развёртывание\n4) Залей admin.js на admin111`
+          : 'Не удалось снять. Запусти upgradeOnce и сделай Новое развёртывание Google-скрипта. Затем залей admin.js на GitHub (admin111).'
+      );
     } catch (e) {
       alert(e.message || 'Ошибка удаления');
     }
@@ -413,6 +468,7 @@
       const fd = new FormData(addForm);
       const listing = buildListing(fd);
       const photo = fd.get('photo');
+      const category = listing.category === 'used' ? 'used' : 'sale';
 
       const payload = {
         password: getPassword(),
@@ -420,8 +476,8 @@
         price: listing.price,
         type: listing.type,
         specs: listing.specs,
-        category: listing.category,
-        badge: listing.category === 'used' ? 'Б/У' : 'продажа',
+        category,
+        badge: category === 'used' ? 'Б/У' : 'продажа',
       };
 
       if (photo instanceof File && photo.size) {
