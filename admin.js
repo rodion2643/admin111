@@ -82,22 +82,59 @@
   }
 
   function parseApiResponse(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) {
+      throw new Error('Пустой ответ Google. Сделайте «Развернуть → Новое развёртывание».');
+    }
     try {
-      return JSON.parse(text);
+      return JSON.parse(trimmed);
     } catch {
-      throw new Error('Google вернул не JSON. Сделайте «Развернуть → Новое развёртывание» в Apps Script.');
+      const match = trimmed.match(/\{[\s\S]*\}/);
+      if (match) {
+        try { return JSON.parse(match[0]); } catch { /* ignore */ }
+      }
+      throw new Error('Google вернул не JSON. Обновите Code.gs и сделайте новое развёртывание.');
+    }
+  }
+
+  async function checkGoogleApi() {
+    const el = document.getElementById('api-status');
+    if (!el || !apiUrl()) return false;
+
+    try {
+      const data = await apiGet({ action: 'ping' });
+      const ok = data?.ok && data.version >= 3 && data.features?.includes('remove');
+      el.hidden = ok;
+      if (!ok) {
+        el.querySelector('p').textContent =
+          'Google-скрипт устарел. Вставьте новый Code.gs → upgradeOnce → setPasswordOnce → Развернуть → Новое развёртывание.';
+      }
+      return ok;
+    } catch (err) {
+      el.hidden = false;
+      el.querySelector('p').textContent =
+        `Нет связи с Google: ${err.message}. Проверьте apiUrl в config.js и развёртывание веб-приложения.`;
+      return false;
     }
   }
 
   async function apiAction(body) {
     let data = await api(body);
     if (data?.ok) return data;
-    if (body.action === 'remove' || body.action === 'hide' || body.action === 'delete') {
+
+    const err = data?.error || '';
+    const canGet = body.action === 'remove' || body.action === 'hide' || body.action === 'delete';
+    if (canGet) {
       data = await apiGet({
         action: body.action,
         password: body.password,
         id: body.id,
       });
+      if (data?.ok) return data;
+    }
+
+    if (/empty post/i.test(err)) {
+      throw new Error('Google не принимает POST. Разверните веб-приложение: «Выполнять от моего имени» + «Доступ: Все».');
     }
     return data;
   }
@@ -250,7 +287,7 @@
       if (data.ok) {
         remoteItems = data.items || [];
         hiddenIds = data.hidden || [];
-        if (scriptWarn) scriptWarn.hidden = Array.isArray(data.hidden);
+        if (scriptWarn) scriptWarn.hidden = data.version >= 3 && Array.isArray(data.hidden);
       } else {
         apiNote = data.error || 'Ошибка загрузки из Google';
       }
@@ -527,6 +564,7 @@
   initSiteLink();
   initLoginHint();
   setCategory('sale');
+  checkGoogleApi();
 
   if (getPassword() && apiUrl()) {
     showApp(true);
