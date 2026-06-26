@@ -139,7 +139,7 @@
     const hidden = new Set(hiddenIds || []);
     const remoteActive = (remoteItems || []).filter(i => i.active);
     const remoteIds = new Set(remoteActive.map(i => i.id));
-    const staticItems = ((window.KWT && KWT.saleCatalog) || [])
+    const staticItems = (typeof KWT !== 'undefined' && Array.isArray(KWT.saleCatalog) ? KWT.saleCatalog : [])
       .filter(i => !hidden.has(i.id) && !remoteIds.has(i.id))
       .map(i => ({ ...i, source: 'site' }));
 
