@@ -1,6 +1,7 @@
 (function () {
   'use strict';
 
+  const SITE_URL = 'https://rodion2643.github.io/kwt-service1/';
   const cfg = window.KWT_LISTINGS_CONFIG || {};
   const SESSION_KEY = 'kwt_admin_pw';
 
@@ -17,8 +18,10 @@
   const loginMsg = document.getElementById('login-msg');
   const addForm = document.getElementById('add-form');
   const addMsg = document.getElementById('add-msg');
-  const listEl = document.getElementById('listings-list');
+  const saleListEl = document.getElementById('listings-sale');
+  const usedListEl = document.getElementById('listings-used');
   const configWarn = document.getElementById('config-warn');
+  const scriptWarn = document.getElementById('script-warn');
   const photoInput = document.getElementById('photo-input');
   const photoPreview = document.getElementById('photo-preview');
   const photoEmpty = document.getElementById('photo-empty');
@@ -26,8 +29,14 @@
   const cancelEditBtn = document.getElementById('cancel-edit');
   const editIdInput = document.getElementById('edit-id');
   const formTitle = document.getElementById('form-title');
+  const categorySelect = document.getElementById('field-category');
+  const categoryTabs = document.getElementById('category-tabs');
 
   let editImageUrl = '';
+
+  function siteBase() {
+    return (cfg.siteUrl || SITE_URL).replace(/\/?$/, '/');
+  }
 
   function apiUrl() {
     return cfg.apiUrl || '';
@@ -77,6 +86,12 @@
       .replace(/"/g, '&quot;');
   }
 
+  function siteAsset(path) {
+    if (!path) return '';
+    if (/^https?:\/\//i.test(path)) return path;
+    return siteBase() + path.replace(/^\.\//, '').replace(/^\//, '');
+  }
+
   function imgUrl(item) {
     const raw = item.image || '';
     if (!raw) return '';
@@ -84,12 +99,25 @@
       const m = raw.match(/[?&]id=([^&]+)/) || raw.match(/\/d\/([a-zA-Z0-9_-]+)/);
       if (m) return `https://drive.google.com/thumbnail?id=${m[1]}&sz=w400`;
     }
-    if (/^https?:\/\//i.test(raw)) return raw;
-    return '../' + raw.replace(/^\.\//, '');
+    return siteAsset(raw);
+  }
+
+  function staticCatalog(category) {
+    if (typeof KWT === 'undefined') return [];
+    if (category === 'used') return Array.isArray(KWT.catalog) ? KWT.catalog : [];
+    return Array.isArray(KWT.saleCatalog) ? KWT.saleCatalog : [];
+  }
+
+  function staticCounts() {
+    return {
+      sale: staticCatalog('sale').length,
+      used: staticCatalog('used').length,
+    };
   }
 
   function buildListing(fd) {
     const type = fd.get('type')?.toString() || 'Самокат';
+    const category = fd.get('category')?.toString() || 'sale';
     const model = fd.get('model')?.toString().trim();
     const prefix = TYPE_PREFIX[type] || 'Электротранспорт';
     const name = model.toLowerCase().startsWith(prefix.toLowerCase().slice(0, 8))
@@ -114,7 +142,7 @@
     if (battery) specs.push(`Ёмкость батареи: ${battery} Ah`);
     if (extra) specs.push(extra);
 
-    return { name, type, price, specs };
+    return { name, type, price, specs, category };
   }
 
   function parseSpecsToForm(specs) {
@@ -135,11 +163,16 @@
     return out;
   }
 
-  function mergeVisibleList(remoteItems, hiddenIds) {
+  function itemCategory(item) {
+    if (item.category === 'used' || item.badge === 'Б/У') return 'used';
+    return 'sale';
+  }
+
+  function mergeVisibleList(remoteItems, hiddenIds, category) {
     const hidden = new Set(hiddenIds || []);
-    const remoteActive = (remoteItems || []).filter(i => i.active);
+    const remoteActive = (remoteItems || []).filter(i => i.active !== false && itemCategory(i) === category);
     const remoteIds = new Set(remoteActive.map(i => i.id));
-    const staticItems = (typeof KWT !== 'undefined' && Array.isArray(KWT.saleCatalog) ? KWT.saleCatalog : [])
+    const staticItems = staticCatalog(category)
       .filter(i => !hidden.has(i.id) && !remoteIds.has(i.id))
       .map(i => ({ ...i, source: 'site' }));
 
@@ -152,21 +185,53 @@
   }
 
   async function loadListings() {
-    if (!listEl) return;
-    listEl.innerHTML = '<p class="muted">Загрузка…</p>';
+    if (!saleListEl && !usedListEl) return;
+    if (saleListEl) saleListEl.innerHTML = '<p class="muted">Загрузка…</p>';
+    if (usedListEl) usedListEl.innerHTML = '<p class="muted">Загрузка…</p>';
+
+    let remoteItems = [];
+    let hiddenIds = [];
+    let apiNote = '';
+
     try {
       const data = await api({ action: 'list', password: getPassword() });
-      if (!data.ok) throw new Error(data.error || 'Ошибка');
-      const items = mergeVisibleList(data.items, data.hidden);
-      renderList(items);
+      if (data.ok) {
+        remoteItems = data.items || [];
+        hiddenIds = data.hidden || [];
+        if (scriptWarn) scriptWarn.hidden = Array.isArray(data.hidden);
+      } else {
+        apiNote = data.error || 'Ошибка загрузки из Google';
+      }
     } catch (e) {
-      listEl.innerHTML = `<p class="msg err">${esc(e.message)}</p>`;
+      apiNote = e.message || 'Нет связи с Google';
     }
+
+    const saleItems = mergeVisibleList(remoteItems, hiddenIds, 'sale');
+    const usedItems = mergeVisibleList(remoteItems, hiddenIds, 'used');
+
+    renderList(saleListEl, saleItems, 'продаже');
+    renderList(usedListEl, usedItems, 'Б/У');
+
+    if (apiNote && scriptWarn) {
+      scriptWarn.hidden = false;
+      scriptWarn.querySelector('p').innerHTML =
+        `<strong>Внимание:</strong> ${esc(apiNote)}. Ниже — объявления с сайта.`;
+    }
+
+    updateListCounts(saleItems.length, usedItems.length);
   }
 
-  function renderList(items) {
+  function updateListCounts(saleN, usedN) {
+    const saleCount = document.getElementById('sale-count-label');
+    const usedCount = document.getElementById('used-count-label');
+    if (saleCount) saleCount.textContent = `${saleN} поз.`;
+    if (usedCount) usedCount.textContent = `${usedN} поз.`;
+  }
+
+  function renderList(listEl, items, label) {
+    if (!listEl) return;
     if (!items.length) {
-      listEl.innerHTML = '<p class="muted">Нет объявлений на сайте.</p>';
+      listEl.innerHTML = `<p class="muted">Нет позиций в ${label}.</p>`;
       return;
     }
     listEl.innerHTML = items.map(item => {
@@ -194,15 +259,28 @@
     });
   }
 
-  function findItemById(id) {
-    const staticItem = ((KWT && KWT.saleCatalog) || []).find(i => i.id === id);
-    return staticItem || null;
+  function findStaticItem(id) {
+    return staticCatalog('sale').find(i => i.id === id)
+      || staticCatalog('used').find(i => i.id === id)
+      || null;
+  }
+
+  function setCategory(cat) {
+    if (categorySelect) categorySelect.value = cat;
+    categoryTabs?.querySelectorAll('[data-cat]').forEach(btn => {
+      btn.classList.toggle('category-tab--active', btn.dataset.cat === cat);
+    });
+    formTitle.textContent = cat === 'used' ? 'Новое объявление Б/У' : 'Новое объявление — продажа';
+    submitBtn.textContent = cat === 'used' ? '✓ Опубликовать в Б/У' : '✓ Опубликовать в продажу';
   }
 
   async function startEdit(id) {
-    const data = await api({ action: 'list', password: getPassword() });
-    let item = (data.items || []).find(i => i.id === id && i.active);
-    if (!item) item = findItemById(id);
+    let item = null;
+    try {
+      const data = await api({ action: 'list', password: getPassword() });
+      item = (data.items || []).find(i => i.id === id && i.active !== false);
+    } catch { /* static only */ }
+    if (!item) item = findStaticItem(id);
     if (!item) return;
 
     editIdInput.value = id;
@@ -212,6 +290,7 @@
     cancelEditBtn.hidden = false;
     photoInput.required = false;
 
+    setCategory(itemCategory(item) === 'used' ? 'used' : 'sale');
     addForm.elements.type.value = item.type || 'Самокат';
     addForm.elements.model.value = item.name || '';
     addForm.elements.price.value = (item.price || '').replace(/\s*Br/i, '').trim();
@@ -229,39 +308,42 @@
       photoEmpty.hidden = true;
     }
 
-    addForm.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    document.getElementById('add-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   function resetForm() {
     editIdInput.value = '';
     editImageUrl = '';
-    formTitle.textContent = 'Новое объявление';
-    submitBtn.textContent = '✓ Опубликовать на сайте';
     cancelEditBtn.hidden = true;
     photoInput.required = true;
     addForm.reset();
+    setCategory('sale');
     photoPreview.hidden = true;
     photoEmpty.hidden = false;
     photoPreview.src = '';
   }
 
   function initSiteLink() {
+    const url = siteBase();
     const link = document.getElementById('site-home');
     if (!link) return;
-    const path = location.pathname.replace(/\/admin(\/.*)?$/i, '/');
-    link.href = path.includes('github.io') ? path : (path || '../');
+    link.href = url;
+    link.target = '_top';
+    link.rel = 'noopener noreferrer';
+    link.addEventListener('click', e => {
+      e.preventDefault();
+      window.top.location.assign(url);
+    });
   }
 
   async function removeListing(id) {
-    if (!confirm('Убрать объявление с сайта?')) return;
+    if (!confirm('Убрать с сайта?')) return;
+    const pw = getPassword();
     try {
-      let data = await api({ action: 'remove', password: getPassword(), id });
-      if (!data.ok && /unknown|неизвест/i.test(String(data.error))) {
-        data = await api({ action: 'delete', password: getPassword(), id });
-      }
-      if (!data.ok) {
-        throw new Error(data.error || 'Не удалось снять. Обновите Google скрипт: upgradeOnce → Новая версия → Развернуть');
-      }
+      let data = await api({ action: 'remove', password: pw, id });
+      if (!data.ok) data = await api({ action: 'hide', password: pw, id });
+      if (!data.ok) data = await api({ action: 'delete', password: pw, id });
+      if (!data.ok) throw new Error('Не удалось снять. Обновите Google-скрипт.');
       if (editIdInput.value === id) resetForm();
       loadListings();
     } catch (e) {
@@ -297,6 +379,15 @@
     showMsg(addMsg, '');
   });
 
+  categoryTabs?.addEventListener('click', e => {
+    const btn = e.target.closest('[data-cat]');
+    if (!btn) return;
+    setCategory(btn.dataset.cat);
+    document.getElementById('add-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  });
+
+  categorySelect?.addEventListener('change', () => setCategory(categorySelect.value));
+
   loginForm?.addEventListener('submit', async e => {
     e.preventDefault();
     const pw = document.getElementById('login-password').value;
@@ -329,6 +420,8 @@
         price: listing.price,
         type: listing.type,
         specs: listing.specs,
+        category: listing.category,
+        badge: listing.category === 'used' ? 'Б/У' : 'продажа',
       };
 
       if (photo instanceof File && photo.size) {
@@ -336,24 +429,22 @@
         payload.imageBase64 = await compressPhoto(photo);
         payload.imageName = 'photo.jpg';
       } else if (isEdit && editImageUrl) {
-        payload.image = editImageUrl.startsWith('../') ? editImageUrl.slice(3) : editImageUrl;
+        const base = siteBase();
+        payload.image = editImageUrl.startsWith(base)
+          ? editImageUrl.slice(base.length)
+          : editImageUrl;
       } else if (!isEdit) {
         throw new Error('Добавьте фото');
       }
 
       showMsg(addMsg, isEdit ? 'Сохраняем…' : 'Публикуем…');
-
-      if (isEdit) {
-        payload.action = 'update';
-        payload.id = editIdInput.value;
-      } else {
-        payload.action = 'add';
-      }
+      payload.action = isEdit ? 'update' : 'add';
+      if (isEdit) payload.id = editIdInput.value;
 
       const data = await api(payload);
       if (!data.ok) throw new Error(data.error || 'Ошибка');
 
-      showMsg(addMsg, '✓ Готово! Обновите сайт.', 'ok');
+      showMsg(addMsg, '✓ Готово! Обновите сайт (Ctrl+F5).', 'ok');
       resetForm();
       loadListings();
     } catch (err) {
@@ -369,8 +460,18 @@
     document.getElementById('login-password').value = '';
   });
 
+  function initLoginHint() {
+    const hint = document.getElementById('login-hint');
+    if (!hint) return;
+    const c = staticCounts();
+    hint.textContent = `После входа — все объявления с сайта: ${c.sale} в продаже, ${c.used} в Б/У.`;
+  }
+
   checkConfig();
   initSiteLink();
+  initLoginHint();
+  setCategory('sale');
+
   if (getPassword() && apiUrl()) {
     showApp(true);
     loadListings();
