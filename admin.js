@@ -102,18 +102,25 @@
     if (!el || !apiUrl()) return false;
 
     try {
-      const data = await apiGet({ action: 'ping' });
-      const ok = data?.ok && data.version >= 3 && data.features?.includes('remove');
+      const ping = await apiGet({ action: 'ping' });
+      const status = await apiGet({ action: 'status' });
+      const ok = ping?.ok && ping.version >= 3 && status?.ok && status.hasListingsSheet;
+
       el.hidden = ok;
       if (!ok) {
+        const parts = [];
+        if (!ping?.ok) parts.push('скрипт не отвечает');
+        if (status?.error) parts.push(status.error);
+        if (status?.ok && !status.hasListingsSheet) parts.push('нет листа listings — запустите upgradeOnce');
+        if (status?.ok && !status.hasPassword) parts.push('запустите setPasswordOnce');
         el.querySelector('p').textContent =
-          'Google-скрипт устарел. Вставьте новый Code.gs → upgradeOnce → setPasswordOnce → Развернуть → Новое развёртывание.';
+          `Google Таблица не настроена: ${parts.join('; ') || 'обновите Code.gs и сделайте новое развёртывание'}.`;
       }
       return ok;
     } catch (err) {
       el.hidden = false;
       el.querySelector('p').textContent =
-        `Нет связи с Google: ${err.message}. Проверьте apiUrl в config.js и развёртывание веб-приложения.`;
+        `Нет связи с Google: ${err.message}. Проверьте apiUrl и развёртывание (Доступ: Все).`;
       return false;
     }
   }
