@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>KWT — добавить объявление</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <div class="admin">
+    <header class="admin__head">
+      <div>
+        <h1>📋 Новое объявление</h1>
+        <p>KWT Service — публикация на сайте</p>
+      </div>
+      <a href="../index.html" class="admin__back">На сайт</a>
+    </header>
+
+    <!-- Только для первого запуска — админ обычно не видит -->
+    <section class="panel panel--warn" id="config-warn" hidden>
+      <p>Сайт ещё не подключён к базе. Попросите того, кто делал сайт, один раз настроить Google Таблицу.</p>
+      <a href="setup.html" class="link">Инструкция для настройки →</a>
+    </section>
+
+    <section class="panel" id="login-panel">
+      <h2>Вход</h2>
+      <p class="muted">Введите пароль администратора</p>
+      <form id="login-form" class="form">
+        <label class="field">
+          <span>Пароль</span>
+          <input type="password" id="login-password" required autocomplete="current-password" inputmode="text">
+        </label>
+        <button type="submit" class="btn btn--primary btn--lg">Войти</button>
+        <p class="msg" id="login-msg"></p>
+      </form>
+    </section>
+
+    <div id="app" hidden>
+      <section class="panel">
+        <div class="panel__row">
+          <h2 id="form-title">Новое объявление</h2>
+          <button type="button" class="btn btn--ghost btn--sm" id="logout-btn">Выйти</button>
+        </div>
+        <p class="muted">Добавить новое или изменить/снять любое объявление с сайта.</p>
+
+        <form id="add-form" class="form">
+          <input type="hidden" name="edit-id" id="edit-id" value="">
+          <label class="field">
+            <span>Что продаёте?</span>
+            <select name="type" id="field-type">
+              <option value="Самокат">🛴 Самокат</option>
+              <option value="Велосипед">🚲 Велосипед</option>
+              <option value="Скутер">🛵 Скутер</option>
+              <option value="Трицикл">🔺 Трицикл</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <span>Модель / название *</span>
+            <input name="model" required placeholder="Например: Kugoo Kirin M4 Pro 18 Ah">
+            <small class="hint">На сайте будет: «Электросамокат Kugoo Kirin M4 Pro…»</small>
+          </label>
+
+          <label class="field">
+            <span>Цена *</span>
+            <div class="input-suffix">
+              <input name="price" required inputmode="numeric" placeholder="2100">
+              <span>Br</span>
+            </div>
+          </label>
+
+          <div class="fields-row">
+            <label class="field">
+              <span>Мощность</span>
+              <div class="input-suffix">
+                <input name="power" placeholder="600" inputmode="numeric">
+                <span>W</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Макс. скорость</span>
+              <div class="input-suffix">
+                <input name="speed" placeholder="45" inputmode="numeric">
+                <span>км/ч</span>
+              </div>
+            </label>
+          </div>
+
+          <div class="fields-row">
+            <label class="field">
+              <span>Пробег</span>
+              <div class="input-suffix">
+                <input name="range" placeholder="35" inputmode="numeric">
+                <span>км</span>
+              </div>
+            </label>
+            <label class="field">
+              <span>Аккумулятор</span>
+              <div class="input-suffix">
+                <input name="battery" placeholder="18" inputmode="decimal">
+                <span>Ah</span>
+              </div>
+            </label>
+          </div>
+
+          <label class="field">
+            <span>Ещё (необязательно)</span>
+            <input name="extra" placeholder="Например: новый, 2 тормоза, до 120 кг">
+          </label>
+
+          <div class="field">
+            <span>Фото *</span>
+            <label class="photo-box" id="photo-box">
+              <input type="file" name="photo" accept="image/*" capture="environment" required hidden id="photo-input">
+              <div class="photo-box__empty" id="photo-empty">
+                <span class="photo-box__icon">📷</span>
+                <strong>Нажмите, чтобы добавить фото</strong>
+                <small>С телефона или галереи</small>
+              </div>
+              <img class="photo-box__preview" id="photo-preview" alt="" hidden>
+            </label>
+          </div>
+
+          <button type="submit" class="btn btn--primary btn--lg btn--full" id="submit-btn">✓ Опубликовать на сайте</button>
+          <button type="button" class="btn btn--ghost btn--full" id="cancel-edit" hidden>Отменить редактирование</button>
+          <p class="msg" id="add-msg"></p>
+        </form>
+      </section>
+
+      <section class="panel">
+        <h2>Все объявления на сайте</h2>
+        <p class="muted">Можно изменить или снять любое — и новые, и старые.</p>
+        <div class="list" id="listings-list">
+          <p class="muted">Загрузка…</p>
+        </div>
+      </section>
+    </div>
+  </div>
+
+  <script src="../js/listings-config.js"></script>
+  <script src="../js/data.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>
